@@ -1,304 +1,257 @@
-# CO2 Emission Predictor for SDG 13: Climate Action
-# A Machine Learning Solution for Climate Policy
+# CO2 Emission Predictor
+#
+# Fits a Random Forest and a linear regression to a generated dataset of
+# country level economic and energy indicators, reports how well each fits,
+# and saves the charts to the charts/ folder.
+#
+# The data is synthetic. See README.md for what that means for the results.
 
-import pandas as pd
-import numpy as np
+import argparse
+import os
+
+import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.preprocessing import StandardScaler
-import warnings
-warnings.filterwarnings('ignore')
+from sklearn.model_selection import train_test_split
 
-print("🌍 CO2 EMISSION PREDICTOR FOR SDG 13: CLIMATE ACTION")
-print("=" * 60)
-print("🎯 Goal: Predict CO2 emissions to support climate targets")
-print("🤖 Method: Machine Learning (Random Forest Regression)")
-print("=" * 60)
+CHART_DIR = "charts"
+SEED = 42
 
-# Generate realistic synthetic dataset
-print("\n📊 Generating Climate Dataset...")
-np.random.seed(42)
-n_samples = 1000
 
-# Economic and energy indicators
-gdp_per_capita = np.random.normal(25000, 15000, n_samples)
-gdp_per_capita = np.clip(gdp_per_capita, 1000, 80000)
+def make_dataset(n_samples=1000, seed=SEED):
+    """Generate the synthetic dataset.
 
-population = np.random.lognormal(15, 1.5, n_samples)
-population = np.clip(population, 0.1, 1400)
+    CO2 is a fixed linear function of the five features plus noise. That is the
+    relationship the models then try to recover.
+    """
+    rng = np.random.default_rng(seed)
 
-energy_consumption = np.random.normal(150, 80, n_samples)
-energy_consumption = np.clip(energy_consumption, 10, 500)
+    gdp_per_capita = np.clip(rng.normal(25000, 15000, n_samples), 1000, 80000)
+    # Log-normal with median about 20 million, clipped at the size of the
+    # largest real country. An earlier version used mean=15 here, which put
+    # every value above the clip and made the column a constant.
+    population = np.clip(rng.lognormal(3.0, 1.5, n_samples), 0.1, 1400)
+    energy_consumption = np.clip(rng.normal(150, 80, n_samples), 10, 500)
+    renewable_energy_pct = rng.beta(2, 5, n_samples) * 100
+    industrial_production = np.clip(rng.normal(100, 40, n_samples), 20, 300)
 
-renewable_energy_pct = np.random.beta(2, 5, n_samples) * 100
+    co2_emissions = (
+        0.0003 * gdp_per_capita
+        + 0.01 * population
+        + 0.05 * energy_consumption
+        + 0.02 * industrial_production
+        - 0.02 * renewable_energy_pct
+        + rng.normal(0, 5, n_samples)
+    )
+    co2_emissions = np.clip(co2_emissions, 0.1, None)
 
-industrial_production = np.random.normal(100, 40, n_samples)
-industrial_production = np.clip(industrial_production, 20, 300)
+    return pd.DataFrame(
+        {
+            "GDP_per_capita": gdp_per_capita,
+            "Population_millions": population,
+            "Energy_consumption_per_capita": energy_consumption,
+            "Renewable_energy_percentage": renewable_energy_pct,
+            "Industrial_production_index": industrial_production,
+            "CO2_emissions_Mt": co2_emissions,
+        }
+    )
 
-# Calculate realistic CO2 emissions
-co2_emissions = (
-    0.0003 * gdp_per_capita +
-    0.01 * population +
-    0.05 * energy_consumption +
-    0.02 * industrial_production -
-    0.02 * renewable_energy_pct +
-    np.random.normal(0, 5, n_samples)
-)
-co2_emissions = np.clip(co2_emissions, 0.1, None)
 
-# Create DataFrame
-data = pd.DataFrame({
-    'GDP_per_capita': gdp_per_capita,
-    'Population_millions': population,
-    'Energy_consumption_per_capita': energy_consumption,
-    'Renewable_energy_percentage': renewable_energy_pct,
-    'Industrial_production_index': industrial_production,
-    'CO2_emissions_Mt': co2_emissions
-})
+def save(fig, name, show):
+    path = os.path.join(CHART_DIR, name)
+    fig.savefig(path, dpi=120)
+    print(f"  saved {path}")
+    if show:
+        plt.show()
+    plt.close(fig)
 
-print(f"✅ Dataset created: {len(data)} samples")
-print(f"📋 Features: {list(data.columns[:-1])}")
 
-# Exploratory Data Analysis
-print("\n📈 EXPLORATORY DATA ANALYSIS")
-print("=" * 50)
+def plot_eda(data, show):
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    fig.suptitle("CO2 emissions against each feature", fontsize=14)
 
-print("\n📊 Dataset Statistics:")
-print(data.describe().round(2))
+    axes[0, 0].hist(data["CO2_emissions_Mt"], bins=30, alpha=0.7, color="red")
+    axes[0, 0].set_title("Distribution of CO2 emissions")
+    axes[0, 0].set_xlabel("CO2 emissions (Mt)")
 
-print("\n🔗 Correlations with CO2 Emissions:")
-correlations = data.corr()['CO2_emissions_Mt'].sort_values(ascending=False)
-for feature, corr in correlations.items():
-    if feature != 'CO2_emissions_Mt':
-        print(f"  {feature}: {corr:.3f}")
+    pairs = [
+        (axes[0, 1], "GDP_per_capita", "GDP per capita ($)", "tab:blue"),
+        (axes[0, 2], "Energy_consumption_per_capita", "Energy consumption per capita", "orange"),
+        (axes[1, 0], "Renewable_energy_percentage", "Renewable energy %", "green"),
+        (axes[1, 1], "Population_millions", "Population (millions)", "purple"),
+    ]
+    for ax, col, label, colour in pairs:
+        ax.scatter(data[col], data["CO2_emissions_Mt"], alpha=0.6, color=colour, s=12)
+        ax.set_title(f"{label} vs CO2")
+        ax.set_xlabel(label)
+        ax.set_ylabel("CO2 emissions (Mt)")
 
-# Create visualizations
-print("\n📊 Creating visualizations...")
-fig, axes = plt.subplots(2, 3, figsize=(15, 10))
-fig.suptitle('CO2 Emissions Analysis for SDG 13: Climate Action', fontsize=16, fontweight='bold')
+    sns.heatmap(data.corr(), annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=axes[1, 2])
+    axes[1, 2].set_title("Correlation matrix")
 
-# Distribution of CO2 emissions
-axes[0, 0].hist(data['CO2_emissions_Mt'], bins=30, alpha=0.7, color='red')
-axes[0, 0].set_title('Distribution of CO2 Emissions')
-axes[0, 0].set_xlabel('CO2 Emissions (Mt)')
+    fig.tight_layout()
+    save(fig, "eda.png", show)
 
-# GDP vs CO2 emissions
-axes[0, 1].scatter(data['GDP_per_capita'], data['CO2_emissions_Mt'], alpha=0.6)
-axes[0, 1].set_title('GDP per Capita vs CO2 Emissions')
-axes[0, 1].set_xlabel('GDP per Capita ($)')
-axes[0, 1].set_ylabel('CO2 Emissions (Mt)')
 
-# Energy consumption vs CO2
-axes[0, 2].scatter(data['Energy_consumption_per_capita'], data['CO2_emissions_Mt'], alpha=0.6, color='orange')
-axes[0, 2].set_title('Energy Consumption vs CO2 Emissions')
-axes[0, 2].set_xlabel('Energy Consumption per Capita')
+def plot_importance(importance, show):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(
+        data=importance, x="importance", y="feature", hue="feature",
+        palette="viridis", legend=False, ax=ax,
+    )
+    ax.set_title("Random Forest feature importance")
+    ax.set_xlabel("Importance score")
+    ax.set_ylabel("")
+    fig.tight_layout()
+    save(fig, "feature_importance.png", show)
 
-# Renewable energy impact
-axes[1, 0].scatter(data['Renewable_energy_percentage'], data['CO2_emissions_Mt'], alpha=0.6, color='green')
-axes[1, 0].set_title('Renewable Energy vs CO2 Emissions')
-axes[1, 0].set_xlabel('Renewable Energy %')
-axes[1, 0].set_ylabel('CO2 Emissions (Mt)')
 
-# Population vs CO2
-axes[1, 1].scatter(data['Population_millions'], data['CO2_emissions_Mt'], alpha=0.6, color='purple')
-axes[1, 1].set_title('Population vs CO2 Emissions')
-axes[1, 1].set_xlabel('Population (Millions)')
+def plot_performance(y_test, y_pred, r2, show):
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
 
-# Correlation heatmap
-corr_matrix = data.corr()
-sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', center=0, ax=axes[1, 2])
-axes[1, 2].set_title('Feature Correlation Matrix')
+    axes[0].scatter(y_test, y_pred, alpha=0.6, color="blue")
+    lo, hi = y_test.min(), y_test.max()
+    axes[0].plot([lo, hi], [lo, hi], "r--", lw=2)
+    axes[0].set_xlabel("Actual CO2 emissions (Mt)")
+    axes[0].set_ylabel("Predicted CO2 emissions (Mt)")
+    axes[0].set_title(f"Actual vs predicted (R squared = {r2:.3f})")
 
-plt.tight_layout()
-plt.show()
+    residuals = y_test - y_pred
+    axes[1].scatter(y_pred, residuals, alpha=0.6, color="green")
+    axes[1].axhline(y=0, color="r", linestyle="--")
+    axes[1].set_xlabel("Predicted CO2 emissions (Mt)")
+    axes[1].set_ylabel("Residual (actual minus predicted)")
+    axes[1].set_title("Residuals")
 
-# Train Machine Learning Model
-print("\n🤖 TRAINING MACHINE LEARNING MODEL")
-print("=" * 50)
+    fig.tight_layout()
+    save(fig, "actual_vs_predicted.png", show)
 
-# Prepare data
-X = data.drop('CO2_emissions_Mt', axis=1)
-y = data['CO2_emissions_Mt']
 
-# Split data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+def plot_scenarios(results, show):
+    names = [name for name, _ in results]
+    values = [value for _, value in results]
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(names, values, color=["green", "orange", "red"], alpha=0.7)
+    ax.set_title("Predicted CO2 emissions for three made-up country profiles")
+    ax.set_ylabel("Predicted CO2 emissions (Mt)")
+    for bar, value in zip(bars, values):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+            f"{value:.1f} Mt", ha="center", va="bottom", fontweight="bold",
+        )
+    fig.tight_layout()
+    save(fig, "scenarios.png", show)
 
-# Train Random Forest model
-print("🔄 Training Random Forest model...")
-rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
-rf_model.fit(X_train, y_train)
 
-# Make predictions
-y_pred = rf_model.predict(X_test)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--show", action="store_true", help="also open each chart in a window")
+    args = parser.parse_args()
+    if not args.show:
+        matplotlib.use("Agg")
+    os.makedirs(CHART_DIR, exist_ok=True)
 
-# Calculate metrics
-mae = mean_absolute_error(y_test, y_pred)
-mse = mean_squared_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
+    print("CO2 Emission Predictor")
+    print("=" * 60)
 
-print(f"✅ Model Training Complete!")
-print(f"📊 Mean Absolute Error: {mae:.2f} Mt CO2")
-print(f"📊 Mean Squared Error: {mse:.2f}")
-print(f"🎯 R² Score (Accuracy): {r2:.3f}")
-print(f"📈 Model explains {r2*100:.1f}% of CO2 emission variance")
+    data = make_dataset()
+    features = [c for c in data.columns if c != "CO2_emissions_Mt"]
+    print(f"\nGenerated {len(data)} rows with features: {features}")
 
-# Feature Importance Analysis
-print("\n🔍 FEATURE IMPORTANCE ANALYSIS")
-print("=" * 50)
+    print("\nDataset statistics")
+    print(data.describe().round(2).to_string())
 
-importances = rf_model.feature_importances_
-feature_names = X.columns.tolist()
-feature_importance = pd.DataFrame({
-    'feature': feature_names,
-    'importance': importances
-}).sort_values('importance', ascending=False)
+    print("\nCorrelation of each feature with CO2 emissions")
+    correlations = data.corr()["CO2_emissions_Mt"].drop("CO2_emissions_Mt").sort_values(ascending=False)
+    for feature, corr in correlations.items():
+        print(f"  {feature:32s} {corr:+.3f}")
 
-print("🏆 Most Important Features for CO2 Emissions:")
-for _, row in feature_importance.iterrows():
-    print(f"  {row['feature']}: {row['importance']:.3f}")
+    print("\nCharts")
+    plot_eda(data, args.show)
 
-# Visualize feature importance
-plt.figure(figsize=(10, 6))
-sns.barplot(data=feature_importance, x='importance', y='feature', palette='viridis')
-plt.title('Feature Importance for CO2 Emission Prediction\n(Higher = More Important for Climate Action)')
-plt.xlabel('Importance Score')
-plt.tight_layout()
-plt.show()
+    X = data[features]
+    y = data["CO2_emissions_Mt"]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=SEED)
 
-# Model Performance Visualization
-print("\n📊 VISUALIZING MODEL PERFORMANCE")
-print("=" * 50)
+    print("\nModels")
+    rf = RandomForestRegressor(n_estimators=100, random_state=SEED)
+    rf.fit(X_train, y_train)
+    rf_pred = rf.predict(X_test)
 
-fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    linear = LinearRegression()
+    linear.fit(X_train, y_train)
+    lin_pred = linear.predict(X_test)
 
-# Actual vs Predicted scatter plot
-axes[0].scatter(y_test, y_pred, alpha=0.6, color='blue')
-axes[0].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
-axes[0].set_xlabel('Actual CO2 Emissions (Mt)')
-axes[0].set_ylabel('Predicted CO2 Emissions (Mt)')
-axes[0].set_title(f'Actual vs Predicted CO2 Emissions\n(R² = {r2:.3f})')
+    rows = []
+    for name, pred in [("Random Forest", rf_pred), ("Linear regression", lin_pred)]:
+        rows.append(
+            {
+                "model": name,
+                "MAE (Mt)": mean_absolute_error(y_test, pred),
+                "RMSE (Mt)": np.sqrt(mean_squared_error(y_test, pred)),
+                "R squared": r2_score(y_test, pred),
+            }
+        )
+    scores = pd.DataFrame(rows).set_index("model")
+    print(scores.round(3).to_string())
+    rf_r2 = scores.loc["Random Forest", "R squared"]
 
-# Residuals plot
-residuals = y_test - y_pred
-axes[1].scatter(y_pred, residuals, alpha=0.6, color='green')
-axes[1].axhline(y=0, color='r', linestyle='--')
-axes[1].set_xlabel('Predicted CO2 Emissions (Mt)')
-axes[1].set_ylabel('Residuals (Actual - Predicted)')
-axes[1].set_title('Residuals Plot\n(Random scatter = good model)')
+    print("\nRandom Forest feature importance")
+    importance = (
+        pd.DataFrame({"feature": features, "importance": rf.feature_importances_})
+        .sort_values("importance", ascending=False)
+        .reset_index(drop=True)
+    )
+    for _, row in importance.iterrows():
+        print(f"  {row['feature']:32s} {row['importance']:.3f}")
+    plot_importance(importance, args.show)
+    plot_performance(y_test, rf_pred, rf_r2, args.show)
 
-plt.tight_layout()
-plt.show()
-
-# Climate Scenario Predictions
-print("\n🔮 CLIMATE SCENARIO PREDICTIONS")
-print("=" * 50)
-
-scenarios = {
-    "🌱 High Renewable Country": {
-        "GDP_per_capita": 40000,
-        "Population_millions": 50,
-        "Energy_consumption_per_capita": 200,
-        "Renewable_energy_percentage": 80,
-        "Industrial_production_index": 120
-    },
-    "🏭 Developing Economy": {
-        "GDP_per_capita": 8000,
-        "Population_millions": 100,
-        "Energy_consumption_per_capita": 80,
-        "Renewable_energy_percentage": 20,
-        "Industrial_production_index": 60
-    },
-    "⚡ Industrial Powerhouse": {
-        "GDP_per_capita": 35000,
-        "Population_millions": 200,
-        "Energy_consumption_per_capita": 350,
-        "Renewable_energy_percentage": 30,
-        "Industrial_production_index": 250
+    print("\nPredictions for three made-up country profiles")
+    scenarios = {
+        "High renewables": {
+            "GDP_per_capita": 40000,
+            "Population_millions": 50,
+            "Energy_consumption_per_capita": 200,
+            "Renewable_energy_percentage": 80,
+            "Industrial_production_index": 120,
+        },
+        "Developing economy": {
+            "GDP_per_capita": 8000,
+            "Population_millions": 100,
+            "Energy_consumption_per_capita": 80,
+            "Renewable_energy_percentage": 20,
+            "Industrial_production_index": 60,
+        },
+        "Industrial heavyweight": {
+            "GDP_per_capita": 35000,
+            "Population_millions": 200,
+            "Energy_consumption_per_capita": 350,
+            "Renewable_energy_percentage": 30,
+            "Industrial_production_index": 250,
+        },
     }
-}
+    results = []
+    for name, point in scenarios.items():
+        prediction = rf.predict(pd.DataFrame([point]))[0]
+        results.append((name, prediction))
+        print(f"  {name:24s} {prediction:6.2f} Mt")
+    plot_scenarios(results, args.show)
 
-scenario_results = []
-for scenario_name, data_point in scenarios.items():
-    df_scenario = pd.DataFrame([data_point])
-    prediction = rf_model.predict(df_scenario)[0]
-    scenario_results.append((scenario_name, prediction))
-    
-    print(f"\n{scenario_name}:")
-    for feature, value in data_point.items():
-        print(f"  {feature}: {value}")
-    print(f"  🎯 Predicted CO2 Emissions: {prediction:.2f} Mt")
+    print("\nWhat the fit says")
+    top = importance.iloc[0]
+    second = importance.iloc[1]
+    print(f"  Strongest feature: {top['feature']} ({top['importance']:.2f}), then {second['feature']} ({second['importance']:.2f}).")
+    renew = correlations["Renewable_energy_percentage"]
+    print(f"  Renewable share correlates {renew:+.2f} with emissions, so more renewables means slightly less CO2 in this data.")
+    print(f"  The Random Forest explains {rf_r2:.0%} of the variance in the test set. The rest is the noise term added when the data was generated.")
+    print("  These numbers describe the generated data only, not any real country.")
 
-# Visualize scenarios
-scenario_names = [name for name, _ in scenario_results]
-scenario_emissions = [emission for _, emission in scenario_results]
 
-plt.figure(figsize=(12, 6))
-colors = ['green', 'orange', 'red']
-bars = plt.bar(scenario_names, scenario_emissions, color=colors, alpha=0.7)
-plt.title('CO2 Emission Predictions for Different Climate Scenarios')
-plt.ylabel('Predicted CO2 Emissions (Mt)')
-plt.xticks(rotation=45)
-
-# Add value labels on bars
-for bar, emission in zip(bars, scenario_emissions):
-    plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
-             f'{emission:.1f} Mt', ha='center', va='bottom', fontweight='bold')
-
-plt.tight_layout()
-plt.show()
-
-# Generate Climate Action Insights
-print("\n💡 INSIGHTS FOR SDG 13: CLIMATE ACTION")
-print("=" * 50)
-
-insights = [
-    "🔋 Energy consumption per capita is the strongest predictor of CO2 emissions",
-    "🌱 Renewable energy percentage has significant negative correlation with emissions",
-    "🏭 Industrial production directly impacts carbon footprint",
-    "💰 Economic development (GDP) correlates with higher emissions",
-    "👥 Population size affects total emissions but efficiency matters more",
-    "🎯 Model accuracy of {:.1f}% enables reliable climate planning".format(r2*100)
-]
-
-for insight in insights:
-    print(insight)
-
-print("\n🌍 POLICY RECOMMENDATIONS FOR CLIMATE ACTION:")
-recommendations = [
-    "1. 🎯 Target: Achieve 50%+ renewable energy by 2030",
-    "2. ⚡ Policy: Implement energy efficiency standards",
-    "3. 💰 Economics: Introduce carbon pricing mechanisms",
-    "4. 🏭 Industry: Support green industrial transitions",
-    "5. 📊 Monitoring: Use AI models for emission tracking",
-    "6. 🌱 Investment: Prioritize renewable energy infrastructure"
-]
-
-for rec in recommendations:
-    print(rec)
-
-print("\n🎊 PROJECT SUMMARY")
-print("=" * 50)
-print(f"✅ Successfully trained ML model with {r2:.1f}% accuracy")
-print(f"📊 Analyzed {len(data)} data points across 5 key indicators")
-print(f"🎯 Generated actionable insights for SDG 13: Climate Action")
-print(f"🌍 Demonstrated AI's potential for climate policy")
-print(f"🚀 Ready for deployment in real-world climate planning")
-
-print("\n🌟 IMPACT STATEMENT")
-print("This AI model contributes to SDG 13 by providing:")
-print("• Data-driven emission predictions for policy planning")
-print("• Identification of high-impact climate interventions")
-print("• Evidence-based support for renewable energy investment")
-print("• Tools for tracking progress toward net-zero goals")
-
-print("\n🔗 Next Steps:")
-print("1. Save model for future use: joblib.dump(rf_model, 'co2_model.pkl')")
-print("2. Deploy as web application for broader access")
-print("3. Integrate real-time data feeds for live predictions")
-print("4. Expand to include more climate indicators")
-
-print("\n🎯 SUCCESS! AI-powered climate action model ready for impact! 🌍")
+if __name__ == "__main__":
+    main()

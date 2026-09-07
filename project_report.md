@@ -1,5 +1,7 @@
 # Predicting Climate Futures: How AI Powers SDG 13 Climate Action
 
+> **Note on the data.** The model in this write-up is trained on a synthetic dataset generated inside `co2_predictor.py`, not on measured country data. Every score and prediction below describes the fit to that generated data. See the README for the current numbers.
+
 ## The Climate Challenge We Face
 
 Climate change is arguably the most pressing challenge of our time. Countries worldwide are struggling to meet their emission reduction commitments under the Paris Agreement, and the window for limiting global warming to 1.5°C is rapidly closing. 
@@ -29,7 +31,7 @@ SDG 13 calls for urgent action to combat climate change and its impacts. Our AI 
 
 **Algorithm Choice**: Random Forest Regression
 - **Why**: Handles complex, non-linear relationships between economic factors and emissions
-- **Accuracy**: Achieves 85%+ accuracy (R² score) in predicting CO2 emissions
+- **Fit**: R squared of 0.51 on the held out test set of the generated data. A linear regression baseline scores 0.56, because the generated data is itself linear
 - **Interpretability**: Provides clear feature importance rankings for policy insights
 
 **Key Features (Input Variables)**:
@@ -43,8 +45,8 @@ SDG 13 calls for urgent action to combat climate change and its impacts. Our AI 
 
 ### What Our Model Reveals About Climate Action
 
-#### 🔋 Energy is the Emission King
-Our analysis confirms what climate scientists have long suspected: **energy consumption patterns are the strongest predictor of CO2 emissions**. This insight is crucial because it means:
+#### 🔋 Wealth and energy use drive the fit
+In the generated data, **GDP per capita and energy consumption per capita carry almost equal weight** (feature importance 0.36 each) and together account for most of the model's predictive power. If that pattern held in real data it would mean:
 - Energy efficiency improvements can deliver massive emission reductions
 - The transition to renewable energy is not just environmentally important—it's mathematically essential for climate goals
 
@@ -63,19 +65,19 @@ Industrial production strongly correlates with emissions, but this relationship 
 
 We tested our model on three different country archetypes:
 
-**High Renewable Country** (like Denmark or Costa Rica):
+**High Renewable Country**:
 - 80% renewable energy, moderate industrial base
-- **Predicted Emissions**: Significantly lower than global average
-- **Policy Insight**: Renewable energy leadership pays dividends
+- **Predicted Emissions**: 24.8 Mt
+- **Policy Insight**: In this data the renewable share has only a small effect (correlation -0.03), so the prediction is driven mostly by GDP and energy use
 
-**Developing Economy** (like many African nations):
+**Developing Economy**:
 - Lower GDP, growing population, limited renewables
-- **Predicted Emissions**: Moderate but rising trajectory
+- **Predicted Emissions**: 4.5 Mt, the lowest of the three
 - **Policy Insight**: Early renewable energy adoption can prevent lock-in of high-emission infrastructure
 
-**Industrial Powerhouse** (like Germany or South Korea):
+**Industrial Powerhouse**:
 - High GDP, significant industrial production, moderate renewables
-- **Predicted Emissions**: Highest predicted emissions
+- **Predicted Emissions**: 33.3 Mt, the highest of the three
 - **Policy Insight**: Industrial decarbonization and renewable energy scaling are both critical
 
 ### The Ethics of Climate AI
